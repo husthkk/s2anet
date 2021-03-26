@@ -23,9 +23,9 @@ model = dict(
         stacked_convs=4,
         feat_channels=256,
         octave_base_scale=4,
-        scales_per_octave=1,
-        # anchor_ratios=[0.5, 1.0, 2.0],
-        anchor_ratios=[1.0],
+        scales_per_octave=3,
+        anchor_ratios=[0.5, 1.0, 2.0],
+        # anchor_ratios=[1.0],
         anchor_angles=[0., ],
         anchor_strides=[8, 16, 32, 64, 128],
         target_means=[.0, .0, .0, .0, .0],
@@ -36,7 +36,9 @@ model = dict(
             gamma=2.0,
             alpha=0.25,
             loss_weight=1.0),
-        loss_bbox=dict(type='SmoothL1Loss', beta=0.11, loss_weight=1.0)))
+        # loss_bbox=dict(type='SmoothL1Loss', beta=0.11, loss_weight=1.0)))
+        loss_bbox=dict(
+            type='GWDLoss', eps=1e-6, loss_weight=1.0)))
 # training and testing settings
 train_cfg = dict(
     assigner=dict(
@@ -111,7 +113,7 @@ evaluation = dict(
     gt_dir='data/dota/test/labelTxt/',
     imagesetfile='data/dota/test/test.txt')
 # optimizer
-optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.0025, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
@@ -133,7 +135,7 @@ log_config = dict(
 total_epochs = 12
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = 'work_dirs/retinanet_obb_r50_fpn_1x_dota/'
+work_dir = 'work_dirs/retinanet_obb_r50_fpn_1x_dota_gwd/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

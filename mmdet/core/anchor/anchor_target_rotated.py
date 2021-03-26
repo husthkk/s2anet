@@ -4,18 +4,18 @@ from ..bbox import PseudoSampler, assign_and_sample, build_assigner, build_bbox_
 from ..utils import multi_apply
 
 
-def anchor_target(anchor_list,
+def anchor_target_rotated(anchor_list,
                   valid_flag_list,
                   gt_bboxes_list,
                   img_metas,
                   target_means,
                   target_stds,
                   cfg,
+                  refined_anchors,
                   gt_bboxes_ignore_list=None,
                   gt_labels_list=None,
                   label_channels=1,
                   sampling=True,
-                  reg_decoded_bbox=True,
                   unmap_outputs=True):
     """Compute regression and classification targets for anchors.
 
@@ -36,12 +36,16 @@ def anchor_target(anchor_list,
 
     # anchor number of multi levels
     num_level_anchors = [anchors.size(0) for anchors in anchor_list[0]] #首先获取了每张图片中，每种尺度anchor的数目
-    # concat all level anchors and flags to a single tensor 将每张图片中所有尺度的anchor放在一起 shape为[总共的anchor数,5]
+    # concat all level anchors and flags to a single tensor 将每张图片中所有尺度的anchor放在一起
     for i in range(num_imgs):
         assert len(anchor_list[i]) == len(valid_flag_list[i])
         anchor_list[i] = torch.cat(anchor_list[i])
         valid_flag_list[i] = torch.cat(valid_flag_list[i])
-
+    if refined_anchors is not None:
+        for i in range(num_imgs):
+            refined_anchors[i] = torch.cat(refined_anchors[i])
+    else:
+        refined_anchors = anchor_list
     # compute targets for each image
     if gt_bboxes_ignore_list is None:
         gt_bboxes_ignore_list = [None for _ in range(num_imgs)]
@@ -49,19 +53,19 @@ def anchor_target(anchor_list,
         gt_labels_list = [None for _ in range(num_imgs)]
     (all_labels, all_label_weights, all_bbox_targets, all_bbox_weights,
      pos_inds_list, neg_inds_list) = multi_apply(
-        anchor_target_single,
+        anchor_target_single_warpper,
         anchor_list,
         valid_flag_list,
         gt_bboxes_list,
         gt_bboxes_ignore_list,
         gt_labels_list,
         img_metas,
+        refined_anchors,
         target_means=target_means,
         target_stds=target_stds,
         cfg=cfg,
         label_channels=label_channels,
         sampling=sampling,
-        reg_decoded_bbox=reg_decoded_bbox,
         unmap_outputs=unmap_outputs)
     # no valid anchors
     if any([labels is None for labels in all_labels]):
@@ -69,7 +73,7 @@ def anchor_target(anchor_list,
     # sampled anchors of all images
     num_total_pos = sum([max(inds.numel(), 1) for inds in pos_inds_list])
     num_total_neg = sum([max(inds.numel(), 1) for inds in neg_inds_list])
-    # split targets to a list w.r.t. multiple levels
+    # split targets to a list w.r.t. multiple levels 先将列表中每个img的结果堆叠起来，最后再将结果按每个尺度中anchor个数切片
     labels_list = images_to_levels(all_labels, num_level_anchors)
     label_weights_list = images_to_levels(all_label_weights, num_level_anchors)
     bbox_targets_list = images_to_levels(all_bbox_targets, num_level_anchors)
@@ -93,18 +97,27 @@ def images_to_levels(target, num_level_anchors):
     return level_targets
 
 
+def anchor_target_single_warpper(*args, **kwargs):
+    cfg = kwargs.get('cfg')
+    anchor_target_type = cfg.assigner
+    if anchor_target_type.type == 'MaxIoUAssigner':
+        return anchor_target_single(*args, **kwargs)
+    elif anchor_target_type.type == 'MaxIoUDALAssigner':
+        return anchor_target_single_odm(*args, **kwargs)
+
+
 def anchor_target_single(flat_anchors,
                          valid_flags,
                          gt_bboxes,
                          gt_bboxes_ignore,
                          gt_labels,
                          img_meta,
+                         refined_anchors,
                          target_means,
                          target_stds,
                          cfg,
                          label_channels=1,
                          sampling=True,
-                         reg_decoded_bbox=False,
                          unmap_outputs=True):
     bbox_coder_cfg = cfg.get('bbox_coder', '')
     if bbox_coder_cfg == '':
@@ -118,14 +131,14 @@ def anchor_target_single(flat_anchors,
         return (None,) * 6
     # assign gt and sample anchors
     anchors = flat_anchors[inside_flags, :]
-
+    
     if sampling:
         assign_result, sampling_result = assign_and_sample(
             anchors, gt_bboxes, gt_bboxes_ignore, None, cfg)
     else:
         bbox_assigner = build_assigner(cfg.assigner)
-        assign_result = bbox_assigner.assign(anchors, gt_bboxes,
-                                             gt_bboxes_ignore, gt_labels)
+        mining_param=(1, 0., 5)
+        assign_result = bbox_assigner.assign(anchors, gt_bboxes, mining_param, refined_anchors, gt_bboxes_ignore, gt_labels)
         bbox_sampler = PseudoSampler()
         sampling_result = bbox_sampler.sample(assign_result, anchors,
                                               gt_bboxes)
@@ -138,12 +151,10 @@ def anchor_target_single(flat_anchors,
 
     pos_inds = sampling_result.pos_inds
     neg_inds = sampling_result.neg_inds
+    # print(pos_inds)
     if len(pos_inds) > 0:
-        if not reg_decoded_bbox:
-            pos_bbox_targets = bbox_coder.encode(sampling_result.pos_bboxes,
+        pos_bbox_targets = bbox_coder.encode(sampling_result.pos_bboxes,
                                              sampling_result.pos_gt_bboxes)
-        else:
-            pos_bbox_targets = sampling_result.pos_gt_bboxes
         bbox_targets[pos_inds, :] = pos_bbox_targets.to(bbox_targets)
         bbox_weights[pos_inds, :] = 1.0
         if gt_labels is None:
@@ -164,7 +175,91 @@ def anchor_target_single(flat_anchors,
         label_weights = unmap(label_weights, num_total_anchors, inside_flags)
         bbox_targets = unmap(bbox_targets, num_total_anchors, inside_flags)
         bbox_weights = unmap(bbox_weights, num_total_anchors, inside_flags)
+    return (labels, label_weights, bbox_targets, bbox_weights, pos_inds,
+            neg_inds)
 
+
+
+def anchor_target_single_odm(flat_anchors,
+                         valid_flags,
+                         gt_bboxes,
+                         gt_bboxes_ignore,
+                         gt_labels,
+                         img_meta,
+                         refined_anchors,
+                         target_means,
+                         target_stds,
+                         cfg,
+                         label_channels=1,
+                         sampling=True,
+                         unmap_outputs=True):
+    bbox_coder_cfg = cfg.get('bbox_coder', '')
+    if bbox_coder_cfg == '':
+        bbox_coder_cfg = dict(type='DeltaXYWHBBoxCoder')
+    bbox_coder = build_bbox_coder(bbox_coder_cfg)
+
+    inside_flags = anchor_inside_flags(flat_anchors, valid_flags,
+                                       img_meta['img_shape'][:2],
+                                       cfg.allowed_border)
+    if not inside_flags.any():
+        return (None,) * 6
+    # assign gt and sample anchors
+    anchors = flat_anchors[inside_flags, :]
+    
+    if sampling:
+        assign_result, sampling_result = assign_and_sample(
+            anchors, gt_bboxes, gt_bboxes_ignore, None, cfg)
+    else:
+        bbox_assigner = build_assigner(cfg.assigner)
+        mining_param=(1, 0., 5)
+        assign_result, overlaps = bbox_assigner.assign(anchors, gt_bboxes, mining_param, refined_anchors, gt_bboxes_ignore, gt_labels)
+        bbox_sampler = PseudoSampler()
+        sampling_result = bbox_sampler.sample(assign_result, anchors,
+                                              gt_bboxes)
+
+    num_valid_anchors = anchors.shape[0]  #anchor数目
+    bbox_targets = torch.zeros_like(anchors) #anchor对应的回归目标（即gt和anchor之间的差）
+    bbox_weights = torch.zeros_like(anchors)  #anchor对应的回归weight，正样本为1，其余为0
+    labels = anchors.new_zeros(num_valid_anchors, dtype=torch.long)  # shape：anchors数目，代表anchor对应的gt类别
+    label_weights = anchors.new_zeros(num_valid_anchors, dtype=torch.float) #shape: anchors数目， 代表每个anchor的分类weight，正负样本为1，忽略的anchor为0
+
+    pos_inds = sampling_result.pos_inds  #正样本anchor的index
+    neg_inds = sampling_result.neg_inds  #负样本anchor的index
+
+    pos = overlaps[:,pos_inds]
+    pos_mask =  torch.ge(pos, 0.5)
+    max_pos, armmax_pos = pos.max(1)
+    nt = overlaps.shape[0]
+    for gt_idx in range(nt):
+        pos_mask[gt_idx,armmax_pos[gt_idx]] = 1
+    comp = torch.where(pos_mask, (1-max_pos).reshape(nt,-1).repeat(1, pos.shape[1]), pos)
+    matching_weight = comp + pos
+
+    if len(pos_inds) > 0:
+        pos_bbox_targets = bbox_coder.encode(sampling_result.pos_bboxes,
+                                             sampling_result.pos_gt_bboxes)
+        bbox_targets[pos_inds, :] = pos_bbox_targets.to(bbox_targets)
+        # bbox_weights[pos_inds, :] = 1.0
+        bbox_weights[pos_inds, :] = matching_weight.max(0)[0].unsqueeze(1).repeat(1,5)
+        if gt_labels is None:
+            labels[pos_inds] = 1
+        else:
+            labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
+        if cfg.pos_weight <= 0:
+            # label_weights[pos_inds] = 1.0
+            label_weights[pos_inds] = 1.0 + matching_weight.max(0)[0]
+        else:
+            label_weights[pos_inds] = cfg.pos_weight
+    if len(neg_inds) > 0:
+        label_weights[neg_inds] = 1.0
+
+    # map up to original set of anchors
+    if unmap_outputs:
+        num_total_anchors = flat_anchors.size(0)
+        labels = unmap(labels, num_total_anchors, inside_flags)
+        label_weights = unmap(label_weights, num_total_anchors, inside_flags)
+        bbox_targets = unmap(bbox_targets, num_total_anchors, inside_flags)
+        bbox_weights = unmap(bbox_weights, num_total_anchors, inside_flags)
     return (labels, label_weights, bbox_targets, bbox_weights, pos_inds,
             neg_inds)
 

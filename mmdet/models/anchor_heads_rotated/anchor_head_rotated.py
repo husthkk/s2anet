@@ -1,9 +1,9 @@
 from __future__ import division
-
+import numpy as np
 import torch
 import torch.nn as nn
 
-from mmdet.core import AnchorGeneratorRotated, delta2bbox_rotated, multiclass_nms_rotated
+from mmdet.core import AnchorGeneratorRotated, delta2bbox_rotated, multiclass_nms_rotated, build_bbox_coder,force_fp32,multi_apply,anchor_target,images_to_levels
 from ..anchor_heads import AnchorHead
 from ..registry import HEADS
 
@@ -11,11 +11,18 @@ from ..registry import HEADS
 @HEADS.register_module
 class AnchorHeadRotated(AnchorHead):
 
-    def __init__(self, *args, anchor_angles=[0., ], **kargs):
+    def __init__(self, *args, 
+                     anchor_angles=[0., ],
+                     bbox_coder=dict(
+                        type='DeltaXYWHABBoxCoder',
+                        target_means=(.0, .0, .0, .0, .0),
+                        target_stds=(1.0, 1.0, 1.0, 1.0, 1.0)), 
+                     **kargs):
         super(AnchorHeadRotated, self).__init__(*args, **kargs)
 
         self.anchor_angles = anchor_angles
-
+        self.reg_decoded_bbox = True
+        self.bbox_coder = build_bbox_coder(bbox_coder)
         self.anchor_generators = []
         for anchor_base in self.anchor_base_sizes:
             self.anchor_generators.append(
@@ -31,7 +38,7 @@ class AnchorHeadRotated(AnchorHead):
                                   self.num_anchors * self.cls_out_channels, 1)
         self.conv_reg = nn.Conv2d(self.in_channels, self.num_anchors * 5, 1)
 
-    def loss_single(self, cls_score, bbox_pred, labels, label_weights,
+    def loss_single(self, cls_score, bbox_pred, anchors, labels, label_weights,
                     bbox_targets, bbox_weights, num_total_samples, cfg):
         # classification loss
         labels = labels.reshape(-1)
@@ -42,12 +49,68 @@ class AnchorHeadRotated(AnchorHead):
         bbox_targets = bbox_targets.reshape(-1, 5)
         bbox_weights = bbox_weights.reshape(-1, 5)
         bbox_pred = bbox_pred.permute(0, 2, 3, 1).reshape(-1, 5)
+        if self.reg_decoded_bbox:
+            anchors = anchors.reshape(-1, 5) #erenzhou 4 to 5
+            bbox_pred = self.bbox_coder.decode(anchors, bbox_pred)
         loss_bbox = self.loss_bbox(
             bbox_pred,
             bbox_targets,
             bbox_weights,
             avg_factor=num_total_samples)
         return loss_cls, loss_bbox
+
+    @force_fp32(apply_to=('cls_scores', 'bbox_preds'))
+    def loss(self,
+             cls_scores,
+             bbox_preds,
+             gt_bboxes,
+             gt_labels,
+             img_metas,
+             cfg,
+             gt_bboxes_ignore=None):
+        featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
+        assert len(featmap_sizes) == len(self.anchor_generators)
+
+        device = cls_scores[0].device
+
+        anchor_list, valid_flag_list = self.get_anchors(
+            featmap_sizes, img_metas, device=device)
+        # anchor number of multi levels
+        num_level_anchors = [anchors.size(0) for anchors in anchor_list[0]]
+        label_channels = self.cls_out_channels if self.use_sigmoid_cls else 1
+        cls_reg_targets = anchor_target(
+            anchor_list,
+            valid_flag_list,
+            gt_bboxes,
+            img_metas,
+            self.target_means,
+            self.target_stds,
+            cfg,
+            gt_bboxes_ignore_list=gt_bboxes_ignore,
+            gt_labels_list=gt_labels,
+            label_channels=label_channels,
+            sampling=self.sampling,
+            reg_decoded_bbox=self.reg_decoded_bbox)
+        if cls_reg_targets is None:
+            return None
+        (labels_list, label_weights_list, bbox_targets_list, bbox_weights_list,
+         num_total_pos, num_total_neg) = cls_reg_targets
+        num_total_samples = (
+            num_total_pos + num_total_neg if self.sampling else num_total_pos)
+        all_anchor_list = images_to_levels(anchor_list,
+                                           num_level_anchors)
+        losses_cls, losses_bbox = multi_apply(
+            self.loss_single,
+            cls_scores,
+            bbox_preds,
+            all_anchor_list,
+            labels_list,
+            label_weights_list,
+            bbox_targets_list,
+            bbox_weights_list,
+            num_total_samples=num_total_samples,
+            cfg=cfg)
+        return dict(loss_cls=losses_cls, loss_bbox=losses_bbox)
 
     def get_bboxes_single(self,
                           cls_score_list,

@@ -7,7 +7,7 @@ from ..iou_calculators import build_iou_calculator
 
 
 @BBOX_ASSIGNERS.register_module
-class MaxIoUAssigner(BaseAssigner):
+class MaxIoUDALAssigner(BaseAssigner):
     """Assign a corresponding gt bbox or background to each bbox.
 
     Each proposals will be assigned with `-1`, `0`, or a positive integer
@@ -30,8 +30,6 @@ class MaxIoUAssigner(BaseAssigner):
             ignoring any bboxes.
         ignore_wrt_candidates (bool): Whether to compute the iof between
             `bboxes` and `gt_bboxes_ignore`, or the contrary.
-        
-        详细解释：https://zhuanlan.zhihu.com/p/138824387
     """
 
     def __init__(self,
@@ -50,8 +48,7 @@ class MaxIoUAssigner(BaseAssigner):
         self.ignore_wrt_candidates = ignore_wrt_candidates
         self.iou_calculator = build_iou_calculator(iou_calculator)
 
-    # def assign(self, bboxes, gt_bboxes, gt_bboxes_ignore=None, gt_labels=None):
-    def assign(self, bboxes, gt_bboxes, mining_param=None, refined_anchors=None, gt_bboxes_ignore=None, gt_labels=None):
+    def assign(self, bboxes, gt_bboxes, mining_param=(1, 0., 5), refined_anchors=None, gt_bboxes_ignore=None, gt_labels=None):
         """Assign gt to bboxes.
 
         This method assign a gt bbox to every bbox (proposal/anchor), each bbox
@@ -79,22 +76,23 @@ class MaxIoUAssigner(BaseAssigner):
         """
         if bboxes.shape[0] == 0 or gt_bboxes.shape[0] == 0:
             raise ValueError('No gt or bboxes')
+        
+        alpha, beta, var = mining_param
+        sa = self.iou_calculator(gt_bboxes, bboxes)
+        fa = self.iou_calculator(gt_bboxes, refined_anchors) 
+        if var != -1:
+            if not torch.is_tensor(fa):
+                fa = torch.from_numpy(fa).cuda()
 
-        overlaps = self.iou_calculator(gt_bboxes, bboxes)
-
-        if (self.ignore_iof_thr > 0) and (gt_bboxes_ignore is not None) and (
-                gt_bboxes_ignore.numel() > 0):
-            if self.ignore_wrt_candidates:
-                ignore_overlaps = self.iou_calculator(
-                    bboxes, gt_bboxes_ignore, mode='iof')
-                ignore_max_overlaps, _ = ignore_overlaps.max(dim=1)
+            if var == 0:
+                md = abs((alpha * sa + beta * fa))
             else:
-                ignore_overlaps = self.iou_calculator(
-                    gt_bboxes_ignore, bboxes, mode='iof')
-                ignore_max_overlaps, _ = ignore_overlaps.max(dim=0)
-            overlaps[:, ignore_max_overlaps > self.ignore_iof_thr] = -1
+                md = abs((alpha * sa + beta * fa) - abs(fa - sa)**var)
+        else:
+            das = False
+            md = sa
 
-        assign_result = self.assign_wrt_overlaps(overlaps, gt_labels)
+        assign_result = self.assign_wrt_overlaps(md, gt_labels)
         return assign_result
 
     def assign_wrt_overlaps(self, overlaps, gt_labels=None):
@@ -114,19 +112,17 @@ class MaxIoUAssigner(BaseAssigner):
         num_gts, num_bboxes = overlaps.size(0), overlaps.size(1)
 
         # 1. assign -1 by default
-        # 默认将index全部置为-1，表示全是忽略的anchor
         assigned_gt_inds = overlaps.new_full((num_bboxes,),
                                              -1,
                                              dtype=torch.long)
 
         # for each anchor, which gt best overlaps with it
-        # for each anchor, the max iou of all gts 计算每个anchor，和哪个gt的IOU最大
+        # for each anchor, the max iou of all gts
         max_overlaps, argmax_overlaps = overlaps.max(dim=0)
         # for each gt, which anchor best overlaps with it
-        # for each gt, the max iou of all proposals 计算每个gt，和哪个anchor的iou最大，可能两个max的索引有重复。
+        # for each gt, the max iou of all proposals
         gt_max_overlaps, gt_argmax_overlaps = overlaps.max(dim=1)
         # 2. assign negative: below
-        # 对于每个anchor，如果其和gt的最大iou都小于neg_iou_thr阈值，则分配负样本
         if isinstance(self.neg_iou_thr, float):
             assigned_gt_inds[(max_overlaps >= 0)
                              & (max_overlaps < self.neg_iou_thr)] = 0
@@ -136,12 +132,10 @@ class MaxIoUAssigner(BaseAssigner):
                              & (max_overlaps < self.neg_iou_thr[1])] = 0
 
         # 3. assign positive: above positive IoU threshold
-        #对于每个anchor，如果其和gt的最大iou大于pos_iou_thr阈值，则分配正样本
         pos_inds = max_overlaps >= self.pos_iou_thr
         assigned_gt_inds[pos_inds] = argmax_overlaps[pos_inds] + 1
 
         # 4. assign fg: for each gt, proposals with highest IoU
-        #对于每个gt，如果其和某个anchor的最大iou大于min_pos_iou阈值，那么依然分配正样本
         for i in range(num_gts):
             if gt_max_overlaps[i] >= self.min_pos_iou:
                 if self.gt_max_assign_all:
@@ -160,4 +154,4 @@ class MaxIoUAssigner(BaseAssigner):
             assigned_labels = None
 
         return AssignResult(
-            num_gts, assigned_gt_inds, max_overlaps, labels=assigned_labels)
+            num_gts, assigned_gt_inds, max_overlaps, labels=assigned_labels), overlaps

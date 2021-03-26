@@ -48,5 +48,5 @@ def prepare_multi_scale_data(src_path, dst_path, gap=200, subsize=1024, scales=[
 
 
 if __name__ == '__main__':
-    prepare_multi_scale_data('/data/hjm/dota', '/data/hjm/dota_1024', gap=200, subsize=1024, scales=[1.0],
+    prepare_multi_scale_data('/home/hkk/data/DOTA', '/home/hkk/DOTA/s2anet/data/dota_1024_ms', gap=200, subsize=1024, scales=[0.5, 1.0, 1.5],
                              num_process=32)

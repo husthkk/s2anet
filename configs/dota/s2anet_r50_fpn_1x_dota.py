@@ -22,7 +22,7 @@ model = dict(
         in_channels=256,
         feat_channels=256,
         stacked_convs=2,
-        with_orconv=True,
+        with_orconv=False,
         anchor_ratios=[1.0],
         anchor_strides=[8, 16, 32, 64, 128],
         anchor_scales=[4],
@@ -36,12 +36,16 @@ model = dict(
             loss_weight=1.0),
         loss_fam_bbox=dict(
             type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0),
+        # loss_fam_bbox=dict(
+        #     type='GWDLoss', eps=1e-6, loss_weight=1.0),
         loss_odm_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
             gamma=2.0,
             alpha=0.25,
             loss_weight=1.0),
+        # loss_odm_bbox=dict(
+        #     type='GWDLoss', eps=1e-6, loss_weight=1.0)))
         loss_odm_bbox=dict(
             type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)))
 # training and testing settings
@@ -84,7 +88,7 @@ test_cfg = dict(
     max_per_img=2000)
 # dataset settings
 dataset_type = 'DotaDataset'
-data_root = 'data/dota_1024/'
+data_root = 'data/dota_1024_ms/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
@@ -113,28 +117,28 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=2,
+    imgs_per_gpu=4,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
-        ann_file=data_root + 'trainval_split/trainval_s2anet.pkl',
+        ann_file=data_root + 'trainval_split/trainval1024.pkl',
         img_prefix=data_root + 'trainval_split/images/',
         pipeline=train_pipeline),
     val=dict(
         type=dataset_type,
-        ann_file=data_root + 'trainval_split/trainval_s2anet.pkl',
+        ann_file=data_root + 'trainval_split/trainval1024.pkl',
         img_prefix=data_root + 'trainval_split/images/',
         pipeline=test_pipeline),
     test=dict(
         type=dataset_type,
-        ann_file=data_root + 'test_split/test_s2anet.pkl',
+        ann_file=data_root + 'test_split/test1024.pkl',
         img_prefix=data_root + 'test_split/images/',
         pipeline=test_pipeline))
 evaluation = dict(
     gt_dir='data/dota/test/labelTxt/', # change it to valset for offline validation
     imagesetfile='data/dota/test/test.txt')
 # optimizer
-optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
@@ -143,7 +147,7 @@ lr_config = dict(
     warmup_iters=500,
     warmup_ratio=1.0 / 3,
     step=[8, 11])
-checkpoint_config = dict(interval=1)
+checkpoint_config = dict(interval=2)
 log_config = dict(
     interval=50,
     hooks=[
@@ -153,6 +157,7 @@ log_config = dict(
 total_epochs = 12
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
+work_dir = 'work_dirs/s2anet_r50_fpn_1x_dota_ms/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

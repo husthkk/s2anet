@@ -32,8 +32,8 @@ def wasserstein_distance_sigma(sigma1, sigma2):
 
     return wasserstein_distance_item2
 
-# @weighted_loss
-def gwd_loss(pred, target,weight, eps=1e-6):
+@weighted_loss
+def gwd_loss(pred, target, eps=1e-6):
     """IoU loss.
 
     Computing the IoU loss between a set of predicted bboxes and target bboxes.
@@ -48,9 +48,9 @@ def gwd_loss(pred, target,weight, eps=1e-6):
     Return:
         Tensor: Loss tensor.
     """
-    mask = (weight > 0).detach()
-    pred = pred[mask]
-    target = target[mask]
+    # mask = (weight > 0).detach()
+    # pred = pred[mask]
+    # target = target[mask]
 
     x1 = pred[:, 0]
     y1 = pred[:, 1]
@@ -82,8 +82,8 @@ def gwd_loss(pred, target,weight, eps=1e-6):
     wasserstein_similarity = 1 / (wasserstein_distance + 2)
     wasserstein_loss = 1 - wasserstein_similarity
     # print(wasserstein_loss.mean())
-    # return wasserstein_loss
-    return wasserstein_loss.mean()
+    return wasserstein_loss
+    # return wasserstein_loss.mean()
 
 
 
@@ -112,16 +112,16 @@ class GWDLoss(nn.Module):
         if weight is not None and weight.dim() > 1:
             assert weight.shape == pred.shape
             weight = weight.mean(-1)
-        # mask = (weight > 0).detach()
-        # pred = pred[mask]
-        # target = target[mask]
-        # weight = weight[mask]
+        mask = (weight > 0).detach()
+        pred = pred[mask]
+        target = target[mask]
+        weight = weight[mask]
         loss = self.loss_weight * gwd_loss(
             pred,
             target,
             weight,
             eps=self.eps,
-            # reduction=reduction,
-            # avg_factor=avg_factor,
+            reduction=reduction,
+            avg_factor=avg_factor,
             **kwargs)
         return loss

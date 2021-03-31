@@ -28,6 +28,7 @@ model = dict(
         anchor_scales=[4],
         target_means=[.0, .0, .0, .0, .0],
         target_stds=[1.0, 1.0, 1.0, 1.0, 1.0],
+        reg_decoded_bbox=True,
         loss_fam_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
@@ -117,7 +118,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=2,
+    imgs_per_gpu=4,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
@@ -138,7 +139,7 @@ evaluation = dict(
     gt_dir='data/dota/test/labelTxt/', # change it to valset for offline validation
     imagesetfile='data/dota/test/test.txt')
 # optimizer
-optimizer = dict(type='SGD', lr=0.0025, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(

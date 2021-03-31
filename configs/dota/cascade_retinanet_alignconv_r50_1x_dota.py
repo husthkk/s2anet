@@ -64,9 +64,9 @@ train_cfg = dict(
         debug=False),
     odm_cfg=dict(
         assigner=dict(
-            type='MaxIoUDALAssigner',
-            pos_iou_thr=0.6,
-            neg_iou_thr=0.6,
+            type='MaxIoUAssigner',
+            pos_iou_thr=0.5,
+            neg_iou_thr=0.4,
             min_pos_iou=0,
             ignore_iof_thr=-1,
             iou_calculator=dict(type='BboxOverlaps2D_rotated')),
@@ -154,7 +154,7 @@ log_config = dict(
 total_epochs = 12
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = 'work_dirs/s2anet_r50_fpn_1x_dota_DAL/'
+work_dir = 'work_dirs/s2anet_r50_fpn_1x_dota_ms/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

@@ -22,12 +22,13 @@ model = dict(
         in_channels=256,
         feat_channels=256,
         stacked_convs=2,
-        with_orconv=False,
+        with_orconv=True,
         anchor_ratios=[1.0],
         anchor_strides=[8, 16, 32, 64, 128],
         anchor_scales=[4],
         target_means=[.0, .0, .0, .0, .0],
         target_stds=[1.0, 1.0, 1.0, 1.0, 1.0],
+        reg_decoded_bbox=False,
         loss_fam_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
@@ -36,16 +37,12 @@ model = dict(
             loss_weight=1.0),
         loss_fam_bbox=dict(
             type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0),
-        # loss_fam_bbox=dict(
-        #     type='GWDLoss', eps=1e-6, loss_weight=1.0),
         loss_odm_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
             gamma=2.0,
             alpha=0.25,
             loss_weight=1.0),
-        # loss_odm_bbox=dict(
-        #     type='GWDLoss', eps=1e-6, loss_weight=1.0)))
         loss_odm_bbox=dict(
             type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)))
 # training and testing settings
@@ -88,7 +85,7 @@ test_cfg = dict(
     max_per_img=2000)
 # dataset settings
 dataset_type = 'DotaDataset'
-data_root = 'data/dota_1024_ms/'
+data_root = 'data/dota_1024/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
@@ -138,7 +135,7 @@ evaluation = dict(
     gt_dir='data/dota/test/labelTxt/', # change it to valset for offline validation
     imagesetfile='data/dota/test/test.txt')
 # optimizer
-optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(

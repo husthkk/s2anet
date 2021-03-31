@@ -41,11 +41,7 @@ def anchor_target_rotated(anchor_list,
         assert len(anchor_list[i]) == len(valid_flag_list[i])
         anchor_list[i] = torch.cat(anchor_list[i])
         valid_flag_list[i] = torch.cat(valid_flag_list[i])
-    if refined_anchors is not None:
-        for i in range(num_imgs):
-            refined_anchors[i] = torch.cat(refined_anchors[i])
-    else:
-        refined_anchors = anchor_list
+        refined_anchors[i] = torch.cat(refined_anchors[i])
     # compute targets for each image
     if gt_bboxes_ignore_list is None:
         gt_bboxes_ignore_list = [None for _ in range(num_imgs)]
@@ -211,7 +207,7 @@ def anchor_target_single_odm(flat_anchors,
             anchors, gt_bboxes, gt_bboxes_ignore, None, cfg)
     else:
         bbox_assigner = build_assigner(cfg.assigner)
-        mining_param=(1, 0., 5)
+        mining_param=(0.3, 0.7, 5)
         assign_result, overlaps = bbox_assigner.assign(anchors, gt_bboxes, mining_param, refined_anchors, gt_bboxes_ignore, gt_labels)
         bbox_sampler = PseudoSampler()
         sampling_result = bbox_sampler.sample(assign_result, anchors,

@@ -23,9 +23,9 @@ model = dict(
         stacked_convs=4,
         feat_channels=256,
         octave_base_scale=4,
-        scales_per_octave=3,
-        anchor_ratios=[0.5, 1.0, 2.0],
-        # anchor_ratios=[1.0],
+        scales_per_octave=1,
+        # anchor_ratios=[0.5, 1.0, 2.0],
+        anchor_ratios=[1.0],
         anchor_angles=[0., ],
         anchor_strides=[8, 16, 32, 64, 128],
         target_means=[.0, .0, .0, .0, .0],
@@ -92,7 +92,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=4,
+    imgs_per_gpu=2,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,

@@ -12,6 +12,7 @@ from .utils import reduce_loss, weight_reduce_loss, weighted_loss
 from .gwd_loss import GWDLoss, gwd_loss
 from .ICL_loss import VarifocalLoss
 
+from .rotated_iou_loss import RotatedIoULoss
 
 __all__ = [
     'accuracy', 'Accuracy', 'cross_entropy', 'binary_cross_entropy',

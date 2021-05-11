@@ -234,9 +234,9 @@ if __name__ == '__main__':
                 module='mmdet.ops.point_justify',
                 sources=['points_justify.cpp', 'points_justify_kernel.cu']),
             make_cuda_ext(
-                name='rotated_iou2d3d',
-                module='mmdet.ops.rotated_iou2d3d',
-                sources=['sort_vert.cpp', 'sort_vert_kernel.cu']),
+                name='sort_vertices_cuda',
+                module='mmdet.ops.box_iou_rotated_diff',
+                sources=['src/sort_vert.cpp', 'src/sort_vert_kernel.cu',]),
         ],
         cmdclass={'build_ext': BuildExtension},
         zip_safe=False)

@@ -2,6 +2,9 @@ from __future__ import division
 import numpy as np
 import torch
 import torch.nn as nn
+from mmdet.core import (AnchorGeneratorRotated, anchor_target,
+                        delta2bbox_rotated, force_fp32, multi_apply,
+                        multiclass_nms_rotated, images_to_levels, build_bbox_coder)
 
 from mmdet.core import AnchorGeneratorRotated, delta2bbox_rotated, multiclass_nms_rotated, build_bbox_coder,force_fp32,multi_apply,anchor_target,images_to_levels, anchor_target_atss, anchor_target_hrsc_multianchors, anchor_hrsc_target
 from ..anchor_heads import AnchorHead
@@ -30,7 +33,8 @@ class AnchorHeadRotated(AnchorHead):
                 AnchorGeneratorRotated(
                     anchor_base, self.anchor_scales, self.anchor_ratios, angles=anchor_angles))
 
-        self.num_anchors = len(self.anchor_ratios) * len(self.anchor_scales) * len(self.anchor_angles)
+        self.num_anchors = len(self.anchor_ratios) * \
+            len(self.anchor_scales) * len(self.anchor_angles)
 
         self._init_layers()
 
@@ -113,8 +117,10 @@ class AnchorHeadRotated(AnchorHead):
         else:
             labels = labels.reshape(-1)
         label_weights = label_weights.reshape(-1)
-        cls_score = cls_score.permute(0, 2, 3, 1).reshape(-1, self.cls_out_channels)
-        loss_cls = self.loss_cls(cls_score, labels, label_weights, avg_factor=num_total_samples)
+        cls_score = cls_score.permute(
+            0, 2, 3, 1).reshape(-1, self.cls_out_channels)
+        loss_cls = self.loss_cls(
+            cls_score, labels, label_weights, avg_factor=num_total_samples)
         # regression loss
         bbox_targets = bbox_targets.reshape(-1, 5)
         bbox_weights = bbox_weights.reshape(-1, 5)

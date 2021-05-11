@@ -117,6 +117,8 @@ def anchor_target_single(flat_anchors,
     if bbox_coder_cfg == '':
         bbox_coder_cfg = dict(type='DeltaXYWHBBoxCoder')
     bbox_coder = build_bbox_coder(bbox_coder_cfg)
+    # Set True to use IoULoss
+    reg_decoded_bbox = cfg.get('reg_decoded_bbox', False)
 
     inside_flags = anchor_inside_flags(flat_anchors, valid_flags,
                                        img_meta['img_shape'][:2],

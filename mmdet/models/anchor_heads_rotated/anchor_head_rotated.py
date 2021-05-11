@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from mmdet.core import AnchorGeneratorRotated, delta2bbox_rotated, multiclass_nms_rotated, build_bbox_coder,force_fp32,multi_apply,anchor_target,images_to_levels
+from mmdet.core import AnchorGeneratorRotated, delta2bbox_rotated, multiclass_nms_rotated, build_bbox_coder,force_fp32,multi_apply,anchor_target,images_to_levels, anchor_target_atss, anchor_target_hrsc_multianchors, anchor_hrsc_target
 from ..anchor_heads import AnchorHead
 from ..registry import HEADS
 
@@ -21,7 +21,8 @@ class AnchorHeadRotated(AnchorHead):
         super(AnchorHeadRotated, self).__init__(*args, **kargs)
 
         self.anchor_angles = anchor_angles
-        self.reg_decoded_bbox = True
+        self.reg_decoded_bbox = False
+        self.use_vfl = True
         self.bbox_coder = build_bbox_coder(bbox_coder)
         self.anchor_generators = []
         for anchor_base in self.anchor_base_sizes:
@@ -38,10 +39,79 @@ class AnchorHeadRotated(AnchorHead):
                                   self.num_anchors * self.cls_out_channels, 1)
         self.conv_reg = nn.Conv2d(self.in_channels, self.num_anchors * 5, 1)
 
+    def get_refine_anchors(self,
+                           featmap_sizes,
+                           refine_anchors,
+                           img_metas,
+                           is_train=True,
+                           device='cuda'):
+        num_levels = len(featmap_sizes)
+
+        refine_anchors_list = []   #list[list] 外面这层list是bs大小，里面这层list是feature level数 refine_anchors是一个list，len为feature level数
+        for img_id, img_meta in enumerate(img_metas):
+            mlvl_refine_anchors = []
+            for i in range(num_levels):
+                refine_anchor = refine_anchors[i][img_id].reshape(-1, 5)
+                mlvl_refine_anchors.append(refine_anchor)
+            refine_anchors_list.append(mlvl_refine_anchors)
+
+        valid_flag_list = []
+        if is_train:
+            for img_id, img_meta in enumerate(img_metas):
+                multi_level_flags = []
+                for i in range(num_levels):
+                    anchor_stride = self.anchor_strides[i]
+                    feat_h, feat_w = featmap_sizes[i]
+                    h, w, _ = img_meta['pad_shape']
+                    valid_feat_h = min(int(np.ceil(h / anchor_stride)), feat_h)
+                    valid_feat_w = min(int(np.ceil(w / anchor_stride)), feat_w)
+                    flags = self.anchor_generators[i].valid_flags(
+                        (feat_h, feat_w), (valid_feat_h, valid_feat_w),
+                        device=device)
+                    multi_level_flags.append(flags)
+                valid_flag_list.append(multi_level_flags)
+        return refine_anchors_list, valid_flag_list
+
+
+    def forward_single(self, x, stride):
+        cls_feat = x
+        reg_feat = x
+        for cls_conv in self.cls_convs:
+            cls_feat = cls_conv(cls_feat)
+        for reg_conv in self.reg_convs:
+            reg_feat = reg_conv(reg_feat)
+        cls_score = self.retina_cls(cls_feat)
+        bbox_pred = self.retina_reg(reg_feat)
+
+        num_level = self.anchor_strides.index(stride)
+        featmap_size = bbox_pred.shape[-2:]
+        device = bbox_pred.device
+        init_anchors = self.anchor_generators[num_level].grid_anchors(
+                featmap_size, self.anchor_strides[num_level], device=device)
+
+        bs = bbox_pred.shape[0]
+        init_anchors = init_anchors.repeat(bs,1,1)
+        #refine_anchor shape: bs x h x w x 5
+        refine_anchor = bbox_decode(
+            bbox_pred.detach(),
+            init_anchors,
+            self.target_means,
+            self.target_stds)
+
+        return cls_score, bbox_pred, refine_anchor
+
+    def forward(self, feats):
+        return multi_apply(self.forward_single, feats, self.anchor_strides)
+
     def loss_single(self, cls_score, bbox_pred, anchors, labels, label_weights,
                     bbox_targets, bbox_weights, num_total_samples, cfg):
         # classification loss
-        labels = labels.reshape(-1)
+        # labels = labels.reshape(-1)
+        # import pdb;pdb.set_trace()
+        if self.use_vfl:
+            labels = labels.reshape(-1, 1)
+        else:
+            labels = labels.reshape(-1)
         label_weights = label_weights.reshape(-1)
         cls_score = cls_score.permute(0, 2, 3, 1).reshape(-1, self.cls_out_channels)
         loss_cls = self.loss_cls(cls_score, labels, label_weights, avg_factor=num_total_samples)
@@ -63,6 +133,7 @@ class AnchorHeadRotated(AnchorHead):
     def loss(self,
              cls_scores,
              bbox_preds,
+             bboxes,
              gt_bboxes,
              gt_labels,
              img_metas,
@@ -75,10 +146,19 @@ class AnchorHeadRotated(AnchorHead):
 
         anchor_list, valid_flag_list = self.get_anchors(
             featmap_sizes, img_metas, device=device)
+        output_bboxes, _ = self.get_refine_anchors(
+            featmap_sizes, bboxes, img_metas, device=device)
         # anchor number of multi levels
         num_level_anchors = [anchors.size(0) for anchors in anchor_list[0]]
         label_channels = self.cls_out_channels if self.use_sigmoid_cls else 1
-        cls_reg_targets = anchor_target(
+        cls_scores_list = []   #list[list] 外面这层list是bs大小，里面这层list是feature level数 refine_anchors是一个list，len为feature level数
+        for img_id, img_meta in enumerate(img_metas):
+            mlvl_cls_score = []
+            for i in range(5):
+                cls_score = cls_scores[i][img_id].permute(1,2,0).reshape(-1, 1)
+                mlvl_cls_score.append(cls_score)
+            cls_scores_list.append(mlvl_cls_score)
+        cls_reg_targets = anchor_hrsc_target(
             anchor_list,
             valid_flag_list,
             gt_bboxes,
@@ -86,11 +166,29 @@ class AnchorHeadRotated(AnchorHead):
             self.target_means,
             self.target_stds,
             cfg,
+            output_bboxes,
+            cls_scores_list,
             gt_bboxes_ignore_list=gt_bboxes_ignore,
             gt_labels_list=gt_labels,
             label_channels=label_channels,
             sampling=self.sampling,
-            reg_decoded_bbox=self.reg_decoded_bbox)
+            reg_decoded_bbox=self.reg_decoded_bbox,
+            use_vfl=self.use_vfl)
+        # cls_reg_targets = anchor_target(
+        #     anchor_list,
+        #     valid_flag_list,
+        #     gt_bboxes,
+        #     img_metas,
+        #     self.target_means,
+        #     self.target_stds,
+        #     cfg,
+        #     output_bboxes,
+        #     gt_bboxes_ignore_list=gt_bboxes_ignore,
+        #     gt_labels_list=gt_labels,
+        #     label_channels=label_channels,
+        #     sampling=self.sampling,
+        #     reg_decoded_bbox=self.reg_decoded_bbox,
+        #     use_vfl=self.use_vfl)
         if cls_reg_targets is None:
             return None
         (labels_list, label_weights_list, bbox_targets_list, bbox_weights_list,
@@ -163,3 +261,18 @@ class AnchorHeadRotated(AnchorHead):
                                                         cfg.score_thr, cfg.nms,
                                                         cfg.max_per_img)
         return det_bboxes, det_labels
+
+
+def bbox_decode(bbox_preds, anchors, means=[0, 0, 0, 0, 0],stds=[1, 1, 1, 1, 1]):
+    num_imgs, _, H, W = bbox_preds.shape
+    bboxes_list = []
+    for img_id in range(num_imgs):
+        bbox_pred = bbox_preds[img_id]
+        anchor = anchors[img_id]
+        # bbox_pred.shape=[5,H,W]
+        bbox_delta = bbox_pred.permute(1, 2, 0).reshape(-1, 5)
+        bboxes = delta2bbox_rotated(
+            anchor, bbox_delta, means, stds, wh_ratio_clip=1e-6)
+        bboxes = bboxes.reshape(H, W, 5)
+        bboxes_list.append(bboxes)
+    return torch.stack(bboxes_list, dim=0)

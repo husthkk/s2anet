@@ -48,6 +48,8 @@ model = dict(
 # training and testing settings
 train_cfg = dict(
     fam_cfg=dict(
+        # assigner=dict(
+        #    type='ATSSAssigner', topk=9, iou_calculator=dict(type='BboxOverlaps2D_rotated')),
         assigner=dict(
             type='MaxIoUAssigner',
             pos_iou_thr=0.5,
@@ -64,12 +66,14 @@ train_cfg = dict(
         debug=False),
     odm_cfg=dict(
         assigner=dict(
-            type='MaxIoUAssigner',
-            pos_iou_thr=0.5,
-            neg_iou_thr=0.4,
-            min_pos_iou=0,
-            ignore_iof_thr=-1,
-            iou_calculator=dict(type='BboxOverlaps2D_rotated')),
+            type='ATSSAssigner', topk=9, iou_calculator=dict(type='BboxOverlaps2D_rotated')),
+        # assigner=dict(
+        #     type='MaxIoUAssigner',
+        #     pos_iou_thr=0.5,
+        #     neg_iou_thr=0.4,
+        #     min_pos_iou=0,
+        #     ignore_iof_thr=-1,
+        #     iou_calculator=dict(type='BboxOverlaps2D_rotated')),
         bbox_coder=dict(type='DeltaXYWHABBoxCoder',
                         target_means=(0., 0., 0., 0., 0.),
                         target_stds=(1., 1., 1., 1., 1.),
@@ -85,7 +89,7 @@ test_cfg = dict(
     max_per_img=2000)
 # dataset settings
 dataset_type = 'DotaDataset'
-data_root = 'data/dota_1024_ms/'
+data_root = 'data/dota_1024/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
@@ -154,7 +158,7 @@ log_config = dict(
 total_epochs = 12
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = 'work_dirs/cascade_retinanet_obb_r50_fpn_1x_dota_alignconv_ms_bs8lr0.005/'
+work_dir = 'work_dirs/cascade_retinanet_obb_r50_fpn_1x_dota_alignconv_CRM_ATSS_bs8lr0.005/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

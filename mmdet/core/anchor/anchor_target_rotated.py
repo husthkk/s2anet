@@ -217,7 +217,10 @@ def anchor_target_single_odm(flat_anchors,
     bbox_targets = torch.zeros_like(anchors) #anchor对应的回归目标（即gt和anchor之间的差）
     bbox_weights = torch.zeros_like(anchors)  #anchor对应的回归weight，正样本为1，其余为0
     labels = anchors.new_zeros(num_valid_anchors, dtype=torch.long)  # shape：anchors数目，代表anchor对应的gt类别
-    label_weights = anchors.new_zeros(num_valid_anchors, dtype=torch.float) #shape: anchors数目， 代表每个anchor的分类weight，正负样本为1，忽略的anchor为0
+    label_weights = anchors.new_zeros(num_valid_anchors, dtype=torch.float)
+    # label_weights = anchors.new_zeros((num_valid_anchors, label_channels),
+    #                                       dtype=torch.float)
+    #shape: anchors数目， 代表每个anchor的分类weight，正负样本为1，忽略的anchor为0
 
     pos_inds = sampling_result.pos_inds  #正样本anchor的index
     neg_inds = sampling_result.neg_inds  #负样本anchor的index
@@ -235,15 +238,15 @@ def anchor_target_single_odm(flat_anchors,
         pos_bbox_targets = bbox_coder.encode(sampling_result.pos_bboxes,
                                              sampling_result.pos_gt_bboxes)
         bbox_targets[pos_inds, :] = pos_bbox_targets.to(bbox_targets)
-        # bbox_weights[pos_inds, :] = 1.0
-        bbox_weights[pos_inds, :] = matching_weight.max(0)[0].unsqueeze(1).repeat(1,5)
+        bbox_weights[pos_inds, :] = 1.0
+        # bbox_weights[pos_inds, :] = matching_weight.max(0)[0].unsqueeze(1).repeat(1,5)
         if gt_labels is None:
             labels[pos_inds] = 1
         else:
             labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
         if cfg.pos_weight <= 0:
-            # label_weights[pos_inds] = 1.0
-            label_weights[pos_inds] = 1.0 + matching_weight.max(0)[0]
+            label_weights[pos_inds] = 1.0
+            # label_weights[pos_inds,gt_labels[sampling_result.pos_assigned_gt_inds]-1] = 1.0 + matching_weight.max(0)[0]
         else:
             label_weights[pos_inds] = cfg.pos_weight
     if len(neg_inds) > 0:

@@ -336,19 +336,6 @@ class RetinaAlignHeadRotated(nn.Module):
             gt_labels_list=gt_labels,
             label_channels=label_channels,
             sampling=self.sampling)
-        # cls_reg_targets = anchor_target_rotated(
-        #     anchors_list,
-        #     valid_flag_list,
-        #     gt_bboxes,
-        #     img_metas,
-        #     self.target_means,
-        #     self.target_stds,
-        #     cfg.fam_cfg,
-        #     None,
-        #     gt_bboxes_ignore_list=gt_bboxes_ignore,
-        #     gt_labels_list=gt_labels,
-        #     label_channels=label_channels,
-        #     sampling=self.sampling)
         if cls_reg_targets is None:
             return None
         #labels_list 是一个list，长度为feature map levels数，一般为5，里面的每一个元素是一个tensor，shape为[bs,anchor_nums],其余的类似
@@ -367,9 +354,6 @@ class RetinaAlignHeadRotated(nn.Module):
             bbox_weights_list,
             num_total_samples=num_total_samples,
             cfg=cfg.fam_cfg)
-        # cls_loss = torch.stack(losses_fam_cls)
-        # box_loss = torch.stack(losses_fam_bbox)
-        # print(torch.any(torch.isnan(cls_loss)),torch.any(torch.isnan(box_loss)))
 
         # Oriented Detection Module targets
         refine_anchors_list, valid_flag_list = self.get_refine_anchors(
@@ -390,20 +374,6 @@ class RetinaAlignHeadRotated(nn.Module):
             gt_labels_list=gt_labels,
             label_channels=label_channels,
             sampling=self.sampling)
-
-        # cls_reg_targets = anchor_target_rotated(
-        #     refine_anchors_list,
-        #     valid_flag_list,
-        #     gt_bboxes,
-        #     img_metas,
-        #     self.target_means,
-        #     self.target_stds,
-        #     cfg.odm_cfg,
-        #     output_bboxes,
-        #     gt_bboxes_ignore_list=gt_bboxes_ignore,
-        #     gt_labels_list=gt_labels,
-        #     label_channels=label_channels,
-        #     sampling=self.sampling)
         if cls_reg_targets is None:
             return None
         (labels_list, label_weights_list, bbox_targets_list, bbox_weights_list,

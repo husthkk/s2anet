@@ -22,7 +22,7 @@ model = dict(
         in_channels=256,
         feat_channels=256,
         stacked_convs=2,
-        with_orconv=False,
+        with_orconv=True,
         anchor_ratios=[1.0],
         anchor_strides=[8, 16, 32, 64, 128],
         anchor_scales=[4],
@@ -35,16 +35,31 @@ model = dict(
             gamma=2.0,
             alpha=0.25,
             loss_weight=1.0),
+        # loss_fam_cls=dict(
+        #     type='VarifocalLoss',
+        #     use_sigmoid=True,
+        #     alpha=0.75,
+        #     gamma=2.0,
+        #     iou_weighted=True,
+        #     loss_weight=1.0),
         loss_fam_bbox=dict(
             type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0),
+        # loss_odm_cls=dict(
+        #     type='FocalLoss',
+        #     use_sigmoid=True,
+        #     gamma=2.0,
+        #     alpha=0.25,
+        #     loss_weight=1.0),
+        use_vfl=True,
         loss_odm_cls=dict(
-            type='FocalLoss',
+            type='VarifocalLoss',
             use_sigmoid=True,
+            alpha=0.75,
             gamma=2.0,
-            alpha=0.25,
+            iou_weighted=True,
             loss_weight=1.0),
         loss_odm_bbox=dict(
-            type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)))
+            type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=2.0)))
 # training and testing settings
 train_cfg = dict(
     fam_cfg=dict(
@@ -85,7 +100,7 @@ test_cfg = dict(
     max_per_img=2000)
 # dataset settings
 dataset_type = 'DotaDataset'
-data_root = 'data/dota_1024_ms/'
+data_root = 'data/dota_1024/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
@@ -154,7 +169,7 @@ log_config = dict(
 total_epochs = 12
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = 'work_dirs/cascade_retinanet_obb_r50_fpn_1x_dota_alignconv_ms_bs8lr0.005/'
+work_dir = 'work_dirs/cascade_retinanet_obb_r50_fpn_1x_dota_alignconv_CRM_ICL_bs8lr0.005/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

@@ -90,7 +90,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=4,
+    imgs_per_gpu=6,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
@@ -111,7 +111,7 @@ evaluation = dict(
     gt_dir='data/dota/test/labelTxt/',
     imagesetfile='data/dota/test/test.txt')
 # optimizer
-optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.0075, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(

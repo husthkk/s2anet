@@ -59,7 +59,7 @@ class AnchorHead(nn.Module):
         self.target_stds = target_stds
 
         self.use_sigmoid_cls = loss_cls.get('use_sigmoid', False)
-        self.sampling = loss_cls['type'] not in ['FocalLoss', 'GHMC']
+        self.sampling = loss_cls['type'] not in ['FocalLoss', 'GHMC', 'VarifocalLoss']
         if self.use_sigmoid_cls:
             self.cls_out_channels = num_classes - 1
         else:
@@ -206,7 +206,7 @@ class AnchorHead(nn.Module):
         return dict(loss_cls=losses_cls, loss_bbox=losses_bbox)
 
     @force_fp32(apply_to=('cls_scores', 'bbox_preds'))
-    def get_bboxes(self, cls_scores, bbox_preds, img_metas, cfg,
+    def get_bboxes(self, cls_scores, bbox_preds, out_bboxes, img_metas, cfg,
                    rescale=False):
         """
         Transform network output for a batch into labeled boxes.

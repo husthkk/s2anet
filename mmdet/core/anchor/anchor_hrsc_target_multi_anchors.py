@@ -2,22 +2,19 @@ import torch
 
 from ..bbox import PseudoSampler, assign_and_sample, build_assigner, build_bbox_coder
 from ..utils import multi_apply
-from mmdet.core.bbox.iou_calculators import build_iou_calculator
 
-def anchor_target(anchor_list,
+def anchor_target_hrsc_multianchors(anchor_list,
                   valid_flag_list,
                   gt_bboxes_list,
                   img_metas,
                   target_means,
                   target_stds,
                   cfg,
-                  output_bboxes,
                   gt_bboxes_ignore_list=None,
                   gt_labels_list=None,
                   label_channels=1,
                   sampling=True,
                   reg_decoded_bbox=True,
-                  use_vfl=False,
                   unmap_outputs=True):
     """Compute regression and classification targets for anchors.
 
@@ -43,7 +40,6 @@ def anchor_target(anchor_list,
         assert len(anchor_list[i]) == len(valid_flag_list[i])
         anchor_list[i] = torch.cat(anchor_list[i])
         valid_flag_list[i] = torch.cat(valid_flag_list[i])
-        output_bboxes[i] = torch.cat(output_bboxes[i])
 
     # compute targets for each image
     if gt_bboxes_ignore_list is None:
@@ -59,14 +55,12 @@ def anchor_target(anchor_list,
         gt_bboxes_ignore_list,
         gt_labels_list,
         img_metas,
-        output_bboxes,
         target_means=target_means,
         target_stds=target_stds,
         cfg=cfg,
         label_channels=label_channels,
         sampling=sampling,
         reg_decoded_bbox=reg_decoded_bbox,
-        use_vfl=use_vfl,
         unmap_outputs=unmap_outputs)
     # no valid anchors
     if any([labels is None for labels in all_labels]):
@@ -104,14 +98,12 @@ def anchor_target_single(flat_anchors,
                          gt_bboxes_ignore,
                          gt_labels,
                          img_meta,
-                         output_bboxes,
                          target_means,
                          target_stds,
                          cfg,
                          label_channels=1,
                          sampling=True,
                          reg_decoded_bbox=False,
-                         use_vfl=False,
                          unmap_outputs=True):
     bbox_coder_cfg = cfg.get('bbox_coder', '')
     if bbox_coder_cfg == '':
@@ -140,11 +132,7 @@ def anchor_target_single(flat_anchors,
     num_valid_anchors = anchors.shape[0]
     bbox_targets = torch.zeros_like(anchors)
     bbox_weights = torch.zeros_like(anchors)
-    if use_vfl:
-        labels = anchors.new_zeros((num_valid_anchors, label_channels),
-                                           dtype=torch.float)
-    else:
-        labels = anchors.new_zeros(num_valid_anchors, dtype=torch.long)
+    labels = anchors.new_zeros(num_valid_anchors, dtype=torch.long)
     label_weights = anchors.new_zeros(num_valid_anchors, dtype=torch.float)
 
     pos_inds = sampling_result.pos_inds
@@ -160,12 +148,7 @@ def anchor_target_single(flat_anchors,
         if gt_labels is None:
             labels[pos_inds] = 1
         else:
-            if use_vfl:
-                iou_calculator = build_iou_calculator(dict(type='BboxOverlaps2D_rotated'))
-                iou = iou_calculator(output_bboxes, gt_bboxes)
-                labels[pos_inds, gt_labels[sampling_result.pos_assigned_gt_inds]-1] = iou[pos_inds, sampling_result.pos_assigned_gt_inds]
-            else:
-                labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
+            labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
         if cfg.pos_weight <= 0:
             label_weights[pos_inds] = 1.0
         else:

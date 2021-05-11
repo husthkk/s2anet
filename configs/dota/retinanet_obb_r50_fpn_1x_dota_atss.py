@@ -1,6 +1,6 @@
 # model settings
 model = dict(
-    type='S2ANetDetector',
+    type='RetinaNet',
     pretrained='torchvision://resnet50',
     backbone=dict(
         type='ResNet',
@@ -17,75 +17,53 @@ model = dict(
         add_extra_convs=True,
         num_outs=5),
     bbox_head=dict(
-        type='S2ANetHead',
+        type='RetinaHeadRotated',
         num_classes=16,
         in_channels=256,
+        stacked_convs=4,
         feat_channels=256,
-        stacked_convs=2,
-        with_orconv=False,
+        octave_base_scale=4,
+        scales_per_octave=1,
+        # anchor_ratios=[0.5, 1.0, 2.0],
         anchor_ratios=[1.0],
+        anchor_angles=[0., ],
         anchor_strides=[8, 16, 32, 64, 128],
-        anchor_scales=[4],
         target_means=[.0, .0, .0, .0, .0],
         target_stds=[1.0, 1.0, 1.0, 1.0, 1.0],
-        reg_decoded_bbox=False,
-        loss_fam_cls=dict(
+        loss_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
             gamma=2.0,
             alpha=0.25,
             loss_weight=1.0),
-        loss_fam_bbox=dict(
-            type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0),
-        loss_odm_cls=dict(
-            type='FocalLoss',
-            use_sigmoid=True,
-            gamma=2.0,
-            alpha=0.25,
-            loss_weight=1.0),
-        loss_odm_bbox=dict(
-            type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)))
+        loss_bbox=dict(type='SmoothL1Loss', beta=0.11, loss_weight=1.0)))
 # training and testing settings
 train_cfg = dict(
-    fam_cfg=dict(
-        assigner=dict(
-            type='MaxIoUAssigner',
-            pos_iou_thr=0.5,
-            neg_iou_thr=0.4,
-            min_pos_iou=0,
-            ignore_iof_thr=-1,
-            iou_calculator=dict(type='BboxOverlaps2D_rotated')),
-        bbox_coder=dict(type='DeltaXYWHABBoxCoder',
-                        target_means=(0., 0., 0., 0., 0.),
-                        target_stds=(1., 1., 1., 1., 1.),
-                        clip_border=True),
-        allowed_border=-1,
-        pos_weight=-1,
-        debug=False),
-    odm_cfg=dict(
-        assigner=dict(
-            type='MaxIoUAssigner',
-            pos_iou_thr=0.5,
-            neg_iou_thr=0.4,
-            min_pos_iou=0,
-            ignore_iof_thr=-1,
-            iou_calculator=dict(type='BboxOverlaps2D_rotated')),
-        bbox_coder=dict(type='DeltaXYWHABBoxCoder',
-                        target_means=(0., 0., 0., 0., 0.),
-                        target_stds=(1., 1., 1., 1., 1.),
-                        clip_border=True),
-        allowed_border=-1,
-        pos_weight=-1,
-        debug=False))
+    # assigner=dict(
+    #     type='MaxIoUAssigner',
+    #     pos_iou_thr=0.5,
+    #     neg_iou_thr=0.4,
+    #     min_pos_iou=0,
+    #     ignore_iof_thr=-1,
+    #     iou_calculator=dict(type='BboxOverlaps2D_rotated')),
+    assigner=dict(
+           type='ATSSAssigner', topk=9, iou_calculator=dict(type='BboxOverlaps2D_rotated')),
+    bbox_coder=dict(type='DeltaXYWHABBoxCoder',
+                    target_means=(0., 0., 0., 0., 0.),
+                    target_stds=(1., 1., 1., 1., 1.),
+                    clip_border=True),
+    allowed_border=-1,
+    pos_weight=-1,
+    debug=False)
 test_cfg = dict(
     nms_pre=2000,
     min_bbox_size=0,
     score_thr=0.05,
-    nms=dict(type='nms_rotated', iou_thr=0.1),
+    nms=dict(type='nms_rotated', iou_thr=0.1),  # 15fps
     max_per_img=2000)
 # dataset settings
 dataset_type = 'DotaDataset'
-data_root = 'data/dota_1024_ms/'
+data_root = 'data/dota_1024/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
@@ -114,7 +92,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=4,
+    imgs_per_gpu=6,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
@@ -132,10 +110,10 @@ data = dict(
         img_prefix=data_root + 'test_split/images/',
         pipeline=test_pipeline))
 evaluation = dict(
-    gt_dir='data/dota/test/labelTxt/', # change it to valset for offline validation
+    gt_dir='data/dota/test/labelTxt/',
     imagesetfile='data/dota/test/test.txt')
 # optimizer
-optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.0075, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
@@ -145,16 +123,19 @@ lr_config = dict(
     warmup_ratio=1.0 / 3,
     step=[8, 11])
 checkpoint_config = dict(interval=2)
+# yapf:disable
 log_config = dict(
     interval=50,
     hooks=[
         dict(type='TextLoggerHook'),
+        # dict(type='TensorboardLoggerHook')
     ])
+# yapf:enable
 # runtime settings
 total_epochs = 12
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = 'work_dirs/cascade_retinanet_obb_r50_fpn_1x_dota_alignconv_ms_bs8lr0.005/'
+work_dir = 'work_dirs/retinanet_obb_r50_fpn_1x_dota_atss/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

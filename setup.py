@@ -229,6 +229,14 @@ if __name__ == '__main__':
                          'src/cpu/ActiveRotatingFilter_cpu.cpp', 'src/cpu/RotationInvariantEncoding_cpu.cpp',
                          'src/cuda/ActiveRotatingFilter_cuda.cu', 'src/cuda/RotationInvariantEncoding_cuda.cu',
                          ]),
+            make_cuda_ext(
+                name='points_justify',
+                module='mmdet.ops.point_justify',
+                sources=['points_justify.cpp', 'points_justify_kernel.cu']),
+            make_cuda_ext(
+                name='rotated_iou2d3d',
+                module='mmdet.ops.rotated_iou2d3d',
+                sources=['sort_vert.cpp', 'sort_vert_kernel.cu']),
         ],
         cmdclass={'build_ext': BuildExtension},
         zip_safe=False)

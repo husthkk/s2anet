@@ -81,9 +81,6 @@ class MaxIoUDALAssigner(BaseAssigner):
         sa = self.iou_calculator(gt_bboxes, bboxes)
         fa = self.iou_calculator(gt_bboxes, refined_anchors) 
         if var != -1:
-            if not torch.is_tensor(fa):
-                fa = torch.from_numpy(fa).cuda()
-
             if var == 0:
                 md = abs((alpha * sa + beta * fa))
             else:

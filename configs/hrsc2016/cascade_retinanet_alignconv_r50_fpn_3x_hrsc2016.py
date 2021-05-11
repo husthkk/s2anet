@@ -18,7 +18,7 @@ model = dict(
         num_outs=5),
     bbox_head=dict(
         type='S2ANetHead',
-        num_classes=16,
+        num_classes=2,
         in_channels=256,
         feat_channels=256,
         stacked_convs=2,
@@ -28,7 +28,6 @@ model = dict(
         anchor_scales=[4],
         target_means=[.0, .0, .0, .0, .0],
         target_stds=[1.0, 1.0, 1.0, 1.0, 1.0],
-        reg_decoded_bbox=False,
         loss_fam_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
@@ -65,8 +64,8 @@ train_cfg = dict(
     odm_cfg=dict(
         assigner=dict(
             type='MaxIoUAssigner',
-            pos_iou_thr=0.5,
-            neg_iou_thr=0.4,
+            pos_iou_thr=0.6,
+            neg_iou_thr=0.5,
             min_pos_iou=0,
             ignore_iof_thr=-1,
             iou_calculator=dict(type='BboxOverlaps2D_rotated')),
@@ -84,15 +83,16 @@ test_cfg = dict(
     nms=dict(type='nms_rotated', iou_thr=0.1),
     max_per_img=2000)
 # dataset settings
-dataset_type = 'DotaDataset'
-data_root = 'data/dota_1024_ms/'
+dataset_type = 'HRSC2016Dataset'
+data_root = 'data/HRSC2016/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    dict(type='RotatedResize', img_scale=(1024, 1024), keep_ratio=True),
+    dict(type='RotatedResize', img_scale=(800, 512), keep_ratio=True),
     dict(type='RotatedRandomFlip', flip_ratio=0.5),
+    dict(type='RandomRotate', rate=0.5, angles=[30, 60, 90, 120, 150], auto_bound=False),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='Pad', size_divisor=32),
     dict(type='DefaultFormatBundle'),
@@ -102,10 +102,10 @@ test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
         type='MultiScaleFlipAug',
-        img_scale=(1024, 1024),
+        img_scale=(800, 512),
         flip=False,
         transforms=[
-            dict(type='RotatedResize', img_scale=(1024, 1024), keep_ratio=True),
+            dict(type='RotatedResize', keep_ratio=True),
             dict(type='RotatedRandomFlip'),
             dict(type='Normalize', **img_norm_cfg),
             dict(type='Pad', size_divisor=32),
@@ -114,28 +114,28 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=4,
+    imgs_per_gpu=8,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
-        ann_file=data_root + 'trainval_split/trainval1024.pkl',
-        img_prefix=data_root + 'trainval_split/images/',
+        ann_file=data_root + 'Train/train.txt',
+        img_prefix=data_root + 'Train/',
         pipeline=train_pipeline),
     val=dict(
         type=dataset_type,
-        ann_file=data_root + 'trainval_split/trainval1024.pkl',
-        img_prefix=data_root + 'trainval_split/images/',
+        ann_file=data_root + 'Test/test.txt',
+        img_prefix=data_root + 'Test/',
         pipeline=test_pipeline),
     test=dict(
         type=dataset_type,
-        ann_file=data_root + 'test_split/test1024.pkl',
-        img_prefix=data_root + 'test_split/images/',
+        ann_file=data_root + 'Test/test.txt',
+        img_prefix=data_root + 'Test/',
         pipeline=test_pipeline))
 evaluation = dict(
-    gt_dir='data/dota/test/labelTxt/', # change it to valset for offline validation
-    imagesetfile='data/dota/test/test.txt')
+    gt_dir='data/HRSC2016/Test/Annotations/',
+    imagesetfile='data/HRSC2016/Test/test.txt')
 # optimizer
-optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
@@ -143,18 +143,18 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=500,
     warmup_ratio=1.0 / 3,
-    step=[8, 11])
-checkpoint_config = dict(interval=2)
+    step=[24, 33])
+checkpoint_config = dict(interval=18)
 log_config = dict(
-    interval=50,
+    interval=10,
     hooks=[
         dict(type='TextLoggerHook'),
     ])
 # runtime settings
-total_epochs = 12
+total_epochs = 36
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = 'work_dirs/cascade_retinanet_obb_r50_fpn_1x_dota_alignconv_ms_bs8lr0.005/'
+work_dir = 'work_dirs/cascade_retinanet_alignconv_r50_fpn_3x_hrsc2016/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

@@ -29,6 +29,7 @@ model = dict(
         target_means=[.0, .0, .0, .0, .0],
         target_stds=[1.0, 1.0, 1.0, 1.0, 1.0],
         reg_decoded_bbox=False,
+        use_vfl=False,
         loss_fam_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
@@ -85,7 +86,7 @@ test_cfg = dict(
     max_per_img=2000)
 # dataset settings
 dataset_type = 'DotaDataset'
-data_root = 'data/dota_1024/'
+data_root = 'data/dota_1024_ms/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
@@ -135,7 +136,7 @@ evaluation = dict(
     gt_dir='data/dota/test/labelTxt/', # change it to valset for offline validation
     imagesetfile='data/dota/test/test.txt')
 # optimizer
-optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
@@ -144,7 +145,7 @@ lr_config = dict(
     warmup_iters=500,
     warmup_ratio=1.0 / 3,
     step=[8, 11])
-checkpoint_config = dict(interval=2)
+checkpoint_config = dict(interval=1)
 log_config = dict(
     interval=50,
     hooks=[
@@ -154,7 +155,7 @@ log_config = dict(
 total_epochs = 12
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = 'work_dirs/s2anet_r50_fpn_1x_dota_ms/'
-load_from = None
+work_dir = 'work_dirs/s2anet_r50_fpn_1x_dota_ms_swa/'
+load_from = '/home/hkk/DOTA/s2anet/work_dirs/s2anet_r50_fpn_1x_dota_ms/epoch_12.pth'
 resume_from = None
 workflow = [('train', 1)]

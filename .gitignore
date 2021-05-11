@@ -123,3 +123,6 @@ demo_results
 
 #img
 *.png
+
+#txt
+*.txt

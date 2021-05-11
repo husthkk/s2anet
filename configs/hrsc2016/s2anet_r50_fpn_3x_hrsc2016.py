@@ -114,7 +114,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=2,
+    imgs_per_gpu=8,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
@@ -144,9 +144,9 @@ lr_config = dict(
     warmup_iters=500,
     warmup_ratio=1.0 / 3,
     step=[24, 33])
-checkpoint_config = dict(interval=12)
+checkpoint_config = dict(interval=18)
 log_config = dict(
-    interval=50,
+    interval=10,
     hooks=[
         dict(type='TextLoggerHook'),
     ])
@@ -154,6 +154,7 @@ log_config = dict(
 total_epochs = 36
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
+work_dir = 'work_dirs/s2anet_r50_fpn_3x_hrsc2016/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

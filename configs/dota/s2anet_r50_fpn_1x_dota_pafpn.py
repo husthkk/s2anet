@@ -10,11 +10,11 @@ model = dict(
         frozen_stages=1,
         style='pytorch'),
     neck=dict(
-        type='FPN',
+        type='PAFPN',
         in_channels=[256, 512, 1024, 2048],
         out_channels=256,
         start_level=1,
-        add_extra_convs=True,
+        add_extra_convs='on_input',
         num_outs=5),
     bbox_head=dict(
         type='S2ANetHead',
@@ -85,7 +85,7 @@ test_cfg = dict(
     max_per_img=2000)
 # dataset settings
 dataset_type = 'DotaDataset'
-data_root = 'data/dota_1024_ms/'
+data_root = 'data/dota_1024/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
@@ -154,7 +154,7 @@ log_config = dict(
 total_epochs = 12
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = 'work_dirs/cascade_retinanet_obb_r50_fpn_1x_dota_alignconv_ms_bs8lr0.005/'
+work_dir = 'work_dirs/cascade_retinanet_obb_r50_fpn_1x_dota_alignconv_pafpn_bs8lr0.005/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

@@ -73,13 +73,13 @@ class RetinaHeadRotated(AnchorHeadRotated):
         normal_init(self.retina_cls, std=0.01, bias=bias_cls)
         normal_init(self.retina_reg, std=0.01)
 
-    def forward_single(self, x):
-        cls_feat = x
-        reg_feat = x
-        for cls_conv in self.cls_convs:
-            cls_feat = cls_conv(cls_feat)
-        for reg_conv in self.reg_convs:
-            reg_feat = reg_conv(reg_feat)
-        cls_score = self.retina_cls(cls_feat)
-        bbox_pred = self.retina_reg(reg_feat)
-        return cls_score, bbox_pred
+    # def forward_single(self, x):
+    #     cls_feat = x
+    #     reg_feat = x
+    #     for cls_conv in self.cls_convs:
+    #         cls_feat = cls_conv(cls_feat)
+    #     for reg_conv in self.reg_convs:
+    #         reg_feat = reg_conv(reg_feat)
+    #     cls_score = self.retina_cls(cls_feat)
+    #     bbox_pred = self.retina_reg(reg_feat)
+    #     return cls_score, bbox_pred

@@ -6,7 +6,8 @@ import torch.nn as nn
 from mmcv.cnn import normal_init
 
 from mmdet.core import (anchor_target, delta2bbox_rotated, AnchorGeneratorRotated,
-                        force_fp32, multi_apply, multiclass_nms_rotated, anchor_target_rotated, images_to_levels, build_bbox_coder)
+                        force_fp32, multi_apply, multiclass_nms_rotated, anchor_target_rotated, images_to_levels, build_bbox_coder,anchor_target_atss)
+from mmdet.core.bbox.iou_calculators import build_iou_calculator
 from ..builder import build_loss
 from ..registry import HEADS
 from ..utils import ConvModule, bias_init_with_prob
@@ -23,11 +24,13 @@ class S2ANetHead(nn.Module):
                  feat_channels=256,
                  stacked_convs=2,
                  with_orconv=True,
-                 reg_decoded_bbox=True,
+                 reg_decoded_bbox=False,
+                 use_vfl=False,
                  bbox_coder=dict(type='DeltaXYWHABBoxCoder',
                         target_means=(0., 0., 0., 0., 0.),
                         target_stds=(1., 1., 1., 1., 1.),
                         clip_border=True),
+                 iou_calculator=dict(type='BboxOverlaps2D_rotated'),
                  anchor_scales=[4],
                  anchor_ratios=[1.0],
                  anchor_strides=[8, 16, 32, 64, 128],
@@ -65,7 +68,7 @@ class S2ANetHead(nn.Module):
         self.target_stds = target_stds
 
         self.use_sigmoid_cls = loss_odm_cls.get('use_sigmoid', False)
-        self.sampling = loss_odm_cls['type'] not in ['FocalLoss', 'GHMC']
+        self.sampling = loss_odm_cls['type'] not in ['FocalLoss', 'GHMC', 'VarifocalLoss']
         if self.use_sigmoid_cls:
             self.cls_out_channels = num_classes - 1
         else:
@@ -80,6 +83,8 @@ class S2ANetHead(nn.Module):
         self.fp16_enabled = False
 
         self.reg_decoded_bbox = reg_decoded_bbox
+        self.use_vfl = use_vfl
+        self.iou_calculator = build_iou_calculator(iou_calculator)
         self.bbox_coder = build_bbox_coder(bbox_coder)
         self.anchor_generators = []
         for anchor_base in self.anchor_base_sizes:
@@ -328,6 +333,8 @@ class S2ANetHead(nn.Module):
 
         anchors_list, valid_flag_list = self.get_init_anchors(
             featmap_sizes, img_metas, device=device)
+        refine_anchors_list, valid_flag_list = self.get_refine_anchors(
+            featmap_sizes, refine_anchors, img_metas, device=device)
         # anchor number of multi levels
         num_level_anchors = [anchors.size(0) for anchors in anchors_list[0]]
         # Feature Alignment Module
@@ -340,11 +347,13 @@ class S2ANetHead(nn.Module):
             self.target_means,
             self.target_stds,
             cfg.fam_cfg,
+            refine_anchors_list,
             gt_bboxes_ignore_list=gt_bboxes_ignore,
             gt_labels_list=gt_labels,
             label_channels=label_channels,
             sampling=self.sampling,
-            reg_decoded_bbox=self.reg_decoded_bbox)
+            reg_decoded_bbox=self.reg_decoded_bbox,
+            use_vfl=False)
         if cls_reg_targets is None:
             return None
         #labels_list 是一个list，长度为feature map levels数，一般为5，里面的每一个元素是一个tensor，shape为[bs,anchor_nums],其余的类似
@@ -372,7 +381,22 @@ class S2ANetHead(nn.Module):
         output_bboxes, _ = self.get_refine_anchors(
             featmap_sizes, bboxes, img_metas, device=device)
         label_channels = self.cls_out_channels if self.use_sigmoid_cls else 1
-        # cls_reg_targets = anchor_target(
+        cls_reg_targets = anchor_target(
+            refine_anchors_list,
+            valid_flag_list,
+            gt_bboxes,
+            img_metas,
+            self.target_means,
+            self.target_stds,
+            cfg.odm_cfg,
+            output_bboxes,
+            gt_bboxes_ignore_list=gt_bboxes_ignore,
+            gt_labels_list=gt_labels,
+            label_channels=label_channels,
+            sampling=self.sampling,
+            reg_decoded_bbox=self.reg_decoded_bbox,
+            use_vfl=self.use_vfl)
+        # cls_reg_targets = anchor_target_atss(
         #     refine_anchors_list,
         #     valid_flag_list,
         #     gt_bboxes,
@@ -385,19 +409,21 @@ class S2ANetHead(nn.Module):
         #     label_channels=label_channels,
         #     sampling=self.sampling,
         #     reg_decoded_bbox=self.reg_decoded_bbox)
-        cls_reg_targets = anchor_target_rotated(
-            refine_anchors_list,
-            valid_flag_list,
-            gt_bboxes,
-            img_metas,
-            self.target_means,
-            self.target_stds,
-            cfg.odm_cfg,
-            output_bboxes,
-            gt_bboxes_ignore_list=gt_bboxes_ignore,
-            gt_labels_list=gt_labels,
-            label_channels=label_channels,
-            sampling=self.sampling)
+        # cls_reg_targets = anchor_target_rotated(
+        #     refine_anchors_list,
+        #     valid_flag_list,
+        #     gt_bboxes,
+        #     img_metas,
+        #     self.target_means,
+        #     self.target_stds,
+        #     cfg.odm_cfg,
+        #     output_bboxes,
+        #     gt_bboxes_ignore_list=gt_bboxes_ignore,
+        #     gt_labels_list=gt_labels,
+        #     label_channels=label_channels,
+        #     sampling=self.sampling,
+        #     reg_decoded_bbox=self.reg_decoded_bbox,
+        #     use_vfl=self.use_vfl)
         if cls_reg_targets is None:
             return None
         (labels_list, label_weights_list, bbox_targets_list, bbox_weights_list,
@@ -445,7 +471,7 @@ class S2ANetHead(nn.Module):
         bbox_weights = bbox_weights.reshape(-1, 5)
         fam_bbox_pred = fam_bbox_pred.permute(0, 2, 3, 1).reshape(-1, 5)
         if self.reg_decoded_bbox:
-            anchors = anchors.reshape(-1, 5) #erenzhou 4 to 5
+            anchors = anchors.reshape(-1, 5)
             fam_bbox_pred = self.bbox_coder.decode(anchors, fam_bbox_pred)
 
         loss_fam_bbox = self.loss_fam_bbox(
@@ -466,7 +492,10 @@ class S2ANetHead(nn.Module):
                         num_total_samples,
                         cfg):
         # classification loss
-        labels = labels.reshape(-1)
+        if self.use_vfl:
+            labels = labels.reshape(-1, 15)
+        else:
+            labels = labels.reshape(-1)
         label_weights = label_weights.reshape(-1)
         odm_cls_score = odm_cls_score.permute(0, 2, 3,
                                               1).reshape(-1, self.cls_out_channels)
@@ -477,7 +506,7 @@ class S2ANetHead(nn.Module):
         bbox_weights = bbox_weights.reshape(-1, 5)
         odm_bbox_pred = odm_bbox_pred.permute(0, 2, 3, 1).reshape(-1, 5)
         if self.reg_decoded_bbox:
-            anchors = anchors.reshape(-1, 5) #erenzhou 4 to 5
+            anchors = anchors.reshape(-1, 5)
             odm_bbox_pred = self.bbox_coder.decode(anchors, odm_bbox_pred)
 
         loss_odm_bbox = self.loss_odm_bbox(

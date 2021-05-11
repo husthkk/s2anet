@@ -4,7 +4,7 @@ from ..bbox import PseudoSampler, assign_and_sample, build_assigner, build_bbox_
 from ..utils import multi_apply
 from mmdet.core.bbox.iou_calculators import build_iou_calculator
 
-def anchor_target(anchor_list,
+def anchor_hrsc_target(anchor_list,
                   valid_flag_list,
                   gt_bboxes_list,
                   img_metas,
@@ -12,6 +12,7 @@ def anchor_target(anchor_list,
                   target_stds,
                   cfg,
                   output_bboxes,
+                  cls_scores_list,
                   gt_bboxes_ignore_list=None,
                   gt_labels_list=None,
                   label_channels=1,
@@ -35,7 +36,6 @@ def anchor_target(anchor_list,
     """
     num_imgs = len(img_metas)
     assert len(anchor_list) == len(valid_flag_list) == num_imgs
-
     # anchor number of multi levels
     num_level_anchors = [anchors.size(0) for anchors in anchor_list[0]] #首先获取了每张图片中，每种尺度anchor的数目
     # concat all level anchors and flags to a single tensor 将每张图片中所有尺度的anchor放在一起 shape为[总共的anchor数,5]
@@ -44,14 +44,14 @@ def anchor_target(anchor_list,
         anchor_list[i] = torch.cat(anchor_list[i])
         valid_flag_list[i] = torch.cat(valid_flag_list[i])
         output_bboxes[i] = torch.cat(output_bboxes[i])
-
+        cls_scores_list[i] = torch.cat(cls_scores_list[i])
     # compute targets for each image
     if gt_bboxes_ignore_list is None:
         gt_bboxes_ignore_list = [None for _ in range(num_imgs)]
     if gt_labels_list is None:
         gt_labels_list = [None for _ in range(num_imgs)]
     (all_labels, all_label_weights, all_bbox_targets, all_bbox_weights,
-     pos_inds_list, neg_inds_list) = multi_apply(
+     pos_inds_list, neg_inds_list, pos_total_num_list, num_total_neg_list, pos_anchor_num_list) = multi_apply(
         anchor_target_single,
         anchor_list,
         valid_flag_list,
@@ -60,6 +60,7 @@ def anchor_target(anchor_list,
         gt_labels_list,
         img_metas,
         output_bboxes,
+        cls_scores_list,
         target_means=target_means,
         target_stds=target_stds,
         cfg=cfg,
@@ -74,6 +75,17 @@ def anchor_target(anchor_list,
     # sampled anchors of all images
     num_total_pos = sum([max(inds.numel(), 1) for inds in pos_inds_list])
     num_total_neg = sum([max(inds.numel(), 1) for inds in neg_inds_list])
+    pos_total_num = sum(pos_total_num_list)
+    neg_total_num = sum(num_total_neg_list)
+    pos_anchor_num = sum(pos_anchor_num_list)
+    pos_ratio = pos_total_num / num_total_pos
+    neg_ratio = neg_total_num / num_total_neg
+    # with open('pos_iter.txt', 'a') as f:
+    #     f.write(str(pos_total_num.item()) + '  ' + str(num_total_pos) + '  ' + str(pos_anchor_num.item()))
+    #     f.write('\n')
+    # with open('neg_iter.txt', 'a') as f:
+    #     f.write(str(neg_total_num.item()) + '  ' + str(num_total_neg))
+    #     f.write('\n')
     # split targets to a list w.r.t. multiple levels
     labels_list = images_to_levels(all_labels, num_level_anchors)
     label_weights_list = images_to_levels(all_label_weights, num_level_anchors)
@@ -105,6 +117,7 @@ def anchor_target_single(flat_anchors,
                          gt_labels,
                          img_meta,
                          output_bboxes,
+                         cls_scores,
                          target_means,
                          target_stds,
                          cfg,
@@ -164,8 +177,78 @@ def anchor_target_single(flat_anchors,
                 iou_calculator = build_iou_calculator(dict(type='BboxOverlaps2D_rotated'))
                 iou = iou_calculator(output_bboxes, gt_bboxes)
                 labels[pos_inds, gt_labels[sampling_result.pos_assigned_gt_inds]-1] = iou[pos_inds, sampling_result.pos_assigned_gt_inds]
+                pos_iou, _ = iou[pos_inds, :].max(dim=1)
+                all_zero = torch.zeros_like(pos_iou)
+                all_one = torch.ones_like(pos_iou)
+                output_iou = torch.where(pos_iou>0.5, all_one, all_zero)
+                pos_total_num = output_iou.sum()
+                neg_iou, _ = iou[neg_inds, :].max(dim=1)
+
+                output_iou, _ = iou.max(dim=1)
+                inds = output_iou > 0.05
+                write_iou, write_score = output_iou[inds], cls_scores[inds].sigmoid()
+                with open('vfl_output_iou_score.txt', 'a') as f:
+                    for i in range(len(write_iou)):
+                        f.write(str(write_iou[i].item()) + ' ' + str(write_score[i].item()))
+                        f.write('\n')
+
+                all_zero = torch.zeros_like(neg_iou)
+                all_one = torch.ones_like(neg_iou)
+                neg_iou = torch.where(neg_iou>0.5, all_one, all_zero)
+                neg_total_num = neg_iou.sum()
+                
+                input_iou = iou_calculator(flat_anchors, gt_bboxes)
+                pos_iou = input_iou[pos_inds, sampling_result.pos_assigned_gt_inds]
+                all_zero = torch.zeros_like(pos_iou)
+                all_one = torch.ones_like(pos_iou)
+                output_iou = torch.where(pos_iou>0.5, all_one, all_zero)
+                pos_anchor_num = output_iou.sum()
+
+                input_iou, _ = input_iou.max(dim=1)
+                inds = input_iou > 0.2
+                write_iou, write_score = input_iou[inds], cls_scores[inds].sigmoid()
+                with open('input_iou_score.txt', 'a') as f:
+                    for i in range(len(write_iou)):
+                        f.write(str(write_iou[i].item()) + ' ' + str(write_score[i].item()))
+                        f.write('\n')
             else:
+                iou_calculator = build_iou_calculator(dict(type='BboxOverlaps2D_rotated'))
+                iou = iou_calculator(output_bboxes, gt_bboxes)
+                pos_iou, _ = iou[pos_inds, :].max(dim=1)
+                all_zero = torch.zeros_like(pos_iou)
+                all_one = torch.ones_like(pos_iou)
+                output_iou = torch.where(pos_iou>0.5, all_one, all_zero)
+                pos_total_num = output_iou.sum()
+                neg_iou, _ = iou[neg_inds, :].max(dim=1)
+
+                output_iou, _ = iou.max(dim=1)
+                inds = output_iou > 0.05
+                write_iou, write_score = output_iou[inds], cls_scores[inds].sigmoid()
+                with open('vfl_output_iou_score.txt', 'a') as f:
+                    for i in range(len(write_iou)):
+                        f.write(str(write_iou[i].item()) + ' ' + str(write_score[i].item()))
+                        f.write('\n')
+
+                all_zero = torch.zeros_like(neg_iou)
+                all_one = torch.ones_like(neg_iou)
+                neg_iou = torch.where(neg_iou>0.5, all_one, all_zero)
+                neg_total_num = neg_iou.sum()
                 labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
+
+                input_iou = iou_calculator(flat_anchors, gt_bboxes)
+                pos_iou = input_iou[pos_inds, sampling_result.pos_assigned_gt_inds]
+                all_zero = torch.zeros_like(pos_iou)
+                all_one = torch.ones_like(pos_iou)
+                output_iou = torch.where(pos_iou>0.5, all_one, all_zero)
+                pos_anchor_num = output_iou.sum()
+
+                input_iou, _ = input_iou.max(dim=1)
+                inds = input_iou > 0.2
+                write_iou, write_score = input_iou[inds], cls_scores[inds].sigmoid()
+                with open('input_iou_score.txt', 'a') as f:
+                    for i in range(len(write_iou)):
+                        f.write(str(write_iou[i].item()) + ' ' + str(write_score[i].item()))
+                        f.write('\n')
         if cfg.pos_weight <= 0:
             label_weights[pos_inds] = 1.0
         else:
@@ -182,7 +265,7 @@ def anchor_target_single(flat_anchors,
         bbox_weights = unmap(bbox_weights, num_total_anchors, inside_flags)
 
     return (labels, label_weights, bbox_targets, bbox_weights, pos_inds,
-            neg_inds)
+            neg_inds, pos_total_num, neg_total_num, pos_anchor_num)
 
 
 # TODO for rotated box

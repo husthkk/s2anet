@@ -24,17 +24,25 @@ model = dict(
         stacked_convs=4,
         feat_channels=256,
         octave_base_scale=4,
-        scales_per_octave=3,
-        anchor_ratios=[0.5, 1.0, 2.0],
-        anchor_angles=[0., PI/3, PI/6, PI/2], # more angles lead to a mAP improvement.
+        scales_per_octave=1,
+        anchor_ratios=[1.0],
+        # anchor_ratios=[0.5, 1.0, 2.0],
+        # anchor_angles=[0., PI/3, PI/6, PI/2], # more angles lead to a mAP improvement.
         anchor_strides=[8, 16, 32, 64, 128],
         target_means=[.0, .0, .0, .0, .0],
         target_stds=[1.0, 1.0, 1.0, 1.0, 1.0],
+        # loss_cls=dict(
+        #     type='FocalLoss',
+        #     use_sigmoid=True,
+        #     gamma=2.0,
+        #     alpha=0.25,
+        #     loss_weight=1.0),
         loss_cls=dict(
-            type='FocalLoss',
+            type='VarifocalLoss',
             use_sigmoid=True,
+            alpha=0.75,
             gamma=2.0,
-            alpha=0.25,
+            iou_weighted=True,
             loss_weight=1.0),
         loss_bbox=dict(type='SmoothL1Loss', beta=0.11, loss_weight=1.0)))
 # training and testing settings
@@ -91,7 +99,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=2,
+    imgs_per_gpu=8,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
@@ -124,18 +132,19 @@ lr_config = dict(
 checkpoint_config = dict(interval=24)
 # yapf:disable
 log_config = dict(
-    interval=50,
+    interval=10,
     hooks=[
         dict(type='TextLoggerHook'),
         # dict(type='TensorboardLoggerHook')
     ])
 # yapf:enable
 # runtime settings
-total_epochs = 72
+total_epochs = 73
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
+work_dir = 'work_dirs/retinanet_r50_fpn_6x_hrsc2016_vfl/'
 load_from = None
-resume_from = None
+resume_from = 'work_dirs/retinanet_r50_fpn_6x_hrsc2016_vfl/epoch_72.pth'
 workflow = [('train', 1)]
 
 # mAP:0.816254171001549

@@ -9,13 +9,19 @@ model = dict(
         out_indices=(0, 1, 2, 3),
         frozen_stages=1,
         style='pytorch'),
-    neck=dict(
-        type='FPN',
-        in_channels=[256, 512, 1024, 2048],
-        out_channels=256,
-        start_level=1,
-        add_extra_convs=True,
-        num_outs=5),
+    neck=[
+        dict(
+            type='FPN',
+            in_channels=[256, 512, 1024, 2048],
+            out_channels=256,
+            num_outs=5),
+        dict(
+            type='BFP',
+            in_channels=256,
+            num_levels=5,
+            refine_level=2,
+            refine_type='non_local')
+    ],
     bbox_head=dict(
         type='S2ANetHead',
         num_classes=16,
@@ -85,7 +91,7 @@ test_cfg = dict(
     max_per_img=2000)
 # dataset settings
 dataset_type = 'DotaDataset'
-data_root = 'data/dota_1024_ms/'
+data_root = 'data/dota_1024/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
@@ -114,7 +120,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=4,
+    imgs_per_gpu=2,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
@@ -135,7 +141,7 @@ evaluation = dict(
     gt_dir='data/dota/test/labelTxt/', # change it to valset for offline validation
     imagesetfile='data/dota/test/test.txt')
 # optimizer
-optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.0025, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
@@ -154,7 +160,7 @@ log_config = dict(
 total_epochs = 12
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = 'work_dirs/cascade_retinanet_obb_r50_fpn_1x_dota_alignconv_ms_bs8lr0.005/'
+work_dir = 'work_dirs/cascade_retinanet_obb_r50_fpn_1x_dota_alignconv_bfp_bs8lr0.005/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

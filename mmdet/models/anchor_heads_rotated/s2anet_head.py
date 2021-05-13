@@ -4,9 +4,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from mmcv.cnn import normal_init
-from mmdet.core import (AnchorGeneratorRotated, anchor_target,
-                        build_bbox_coder, delta2bbox_rotated, force_fp32,
-                        images_to_levels, multi_apply, multiclass_nms_rotated)
 
 from mmdet.core import (anchor_target, delta2bbox_rotated, AnchorGeneratorRotated,
                         force_fp32, multi_apply, multiclass_nms_rotated, anchor_target_rotated, images_to_levels, build_bbox_coder,anchor_target_atss)
@@ -14,6 +11,8 @@ from mmdet.core.bbox.iou_calculators import build_iou_calculator
 from ..builder import build_loss
 from ..registry import HEADS
 from ..utils import ConvModule, bias_init_with_prob
+from ...ops import DeformConv
+from ...ops.orn import ORConv2d, RotationInvariantPooling
 
 
 @HEADS.register_module
@@ -333,7 +332,7 @@ class S2ANetHead(nn.Module):
         assert len(featmap_sizes) == len(self.anchor_generators)
         device = odm_cls_scores[0].device
 
-        anchor_list, valid_flag_list = self.get_init_anchors(
+        anchors_list, valid_flag_list = self.get_init_anchors(
             featmap_sizes, img_metas, device=device)
         refine_anchors_list, valid_flag_list = self.get_refine_anchors(
             featmap_sizes, refine_anchors, img_metas, device=device)
@@ -342,7 +341,7 @@ class S2ANetHead(nn.Module):
         # Feature Alignment Module
         label_channels = self.cls_out_channels if self.use_sigmoid_cls else 1
         cls_reg_targets = anchor_target(
-            anchor_list,
+            anchors_list,
             valid_flag_list,
             gt_bboxes,
             img_metas,
@@ -475,18 +474,6 @@ class S2ANetHead(nn.Module):
         if self.reg_decoded_bbox:
             anchors = anchors.reshape(-1, 5)
             fam_bbox_pred = self.bbox_coder.decode(anchors, fam_bbox_pred)
-
-        reg_decoded_bbox = cfg.get('reg_decoded_bbox', False)
-        if reg_decoded_bbox:
-            # When the regression loss (e.g. `IouLoss`, `GIouLoss`)
-            # is applied directly on the decoded bounding boxes, it
-            # decodes the already encoded coordinates to absolute format.
-            bbox_coder_cfg = cfg.get('bbox_coder', '')
-            if bbox_coder_cfg == '':
-                bbox_coder_cfg = dict(type='DeltaXYWHBBoxCoder')
-            bbox_coder = build_bbox_coder(bbox_coder_cfg)
-            anchors = anchors.reshape(-1, 5)
-            fam_bbox_pred = bbox_coder.decode(anchors, fam_bbox_pred)
         loss_fam_bbox = self.loss_fam_bbox(
             fam_bbox_pred,
             bbox_targets,
@@ -521,18 +508,6 @@ class S2ANetHead(nn.Module):
         if self.reg_decoded_bbox:
             anchors = anchors.reshape(-1, 5)
             odm_bbox_pred = self.bbox_coder.decode(anchors, odm_bbox_pred)
-
-        reg_decoded_bbox = cfg.get('reg_decoded_bbox', False)
-        if reg_decoded_bbox:
-            # When the regression loss (e.g. `IouLoss`, `GIouLoss`)
-            # is applied directly on the decoded bounding boxes, it
-            # decodes the already encoded coordinates to absolute format.
-            bbox_coder_cfg = cfg.get('bbox_coder', '')
-            if bbox_coder_cfg == '':
-                bbox_coder_cfg = dict(type='DeltaXYWHBBoxCoder')
-            bbox_coder = build_bbox_coder(bbox_coder_cfg)
-            anchors = anchors.reshape(-1, 5)
-            odm_bbox_pred = bbox_coder.decode(anchors, odm_bbox_pred)
         loss_odm_bbox = self.loss_odm_bbox(
             odm_bbox_pred,
             bbox_targets,

@@ -28,15 +28,17 @@ model = dict(
         anchor_scales=[4],
         target_means=[.0, .0, .0, .0, .0],
         target_stds=[1.0, 1.0, 1.0, 1.0, 1.0],
-        reg_decoded_bbox=False,
+        reg_decoded_bbox=True,
         loss_fam_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
             gamma=2.0,
             alpha=0.25,
             loss_weight=1.0),
+        # loss_fam_bbox=dict(
+        #     type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0),
         loss_fam_bbox=dict(
-            type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0),
+                type='RotatedIoULoss', loss_weight=1.0),
         loss_odm_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
@@ -44,7 +46,9 @@ model = dict(
             alpha=0.25,
             loss_weight=1.0),
         loss_odm_bbox=dict(
-            type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)))
+                type='RotatedIoULoss', loss_weight=1.0)))
+        # loss_odm_bbox=dict(
+        #     type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)))
 # training and testing settings
 train_cfg = dict(
     fam_cfg=dict(
@@ -135,7 +139,7 @@ evaluation = dict(
     gt_dir='data/dota/test/labelTxt/', # change it to valset for offline validation
     imagesetfile='data/dota/test/test.txt')
 # optimizer
-optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
@@ -154,7 +158,7 @@ log_config = dict(
 total_epochs = 12
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = 'work_dirs/s2anet_r50_fpn_1x_dota/'
+work_dir = 'work_dirs/cascade_retinanet_obb_r50_fpn_1x_dota_alignconv_iouloss_bs8lr0.005/'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]
